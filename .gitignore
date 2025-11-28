@@ -1,0 +1,21 @@
+# Dependencies
+/node_modules
+
+# Build and Compilation Outputs
+/dist
+/build
+/out
+
+# Runtime and Logs
+*.log
+npm-debug.log*
+
+# Environment and Secrets
+.env
+.env.local
+.env.*.local
+
+# Operating System and IDE Files (Common)
+.DS_Store
+.vscode/
+# Add specific IDE files (e.g., .idea/ for IntelliJ/WebStorm)
