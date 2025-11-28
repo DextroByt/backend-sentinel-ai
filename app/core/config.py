@@ -1,50 +1,49 @@
 import os
-from typing import List, Literal
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
+from pydantic_settings import BaseSettings
+
+# Calculate the root directory (backend-sentinel-ai/)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 class Settings(BaseSettings):
-    # Application Info
-    PROJECT_NAME: str = "Sentinel AI"
-    API_V1_STR: str = "/api/v1"
-    
-    # Security & Database
+    """
+    Application Settings Configuration.
+    Managed via pydantic_settings to ensure strict typing and validation.
+    Adheres to the 12-Factor App methodology (Reference §2.4).
+    """
+
+    # --- Application Metadata ---
+    APP_NAME: str = "Sentinel AI"
+    ENVIRONMENT: str = "development"
+    DEBUG: bool = True
+    VERSION: str = "1.0.0"
+
+    # --- Database Configuration (Reference §2.2) ---
+    # The connection string for the PostgreSQL database (AsyncPG).
+    # Critical for the "Decoupled Monolith" architecture.
     DATABASE_URL: str
-    SECRET_KEY: str
-    
-    # External APIs
+
+    # --- External API Keys (Reference §2.4) ---
+    # These secrets are injected via environment variables (.env) for security.
     GEMINI_API_KEY: str
-    NEWS_API_KEY: str
     
-    # AI Model Configuration [cite: 75, 76]
-    # Optimized for speed and context window
+    # NOTE: NewsAPI and NewsDataAPI keys have been removed in favor of free RSS/DDGS services.
+
+    # --- AI Model Configuration (Reference §2.4) ---
+    # "Gemini 2.5 Flash" is selected for its high efficiency and large context window,
+    # essential for parsing lengthy news articles during the extraction phase.
     GEMINI_EXTRACTION_MODEL: str = "gemini-2.5-flash"
     GEMINI_SYNTHESIS_MODEL: str = "gemini-2.5-flash"
 
-    # Agent Configurations
-    # List of trusted domains for Official Agent [cite: 90]
-    OFFICIAL_DOMAINS: List[str] = [
-        "ndrf.gov.in", 
-        "mumbaipolice.gov.in", 
-        "pib.gov.in", 
-        "who.int",
-        "imd.gov.in"
-    ]
-    
-    # Fact Check Repositories [cite: 103]
-    FACT_CHECK_DOMAINS: List[str] = [
-        "altnews.in",
-        "boomlive.in",
-        "snopes.com"
-    ]
+    # --- Pydantic Config ---
+    class Config:
+        # Load variables from the .env file in the root directory
+        env_file = os.path.join(BASE_DIR, ".env")
+        env_file_encoding = 'utf-8'
+        # Ensure environment variables match the case defined above
+        case_sensitive = True
+        # Ignore extra environment variables to prevent runtime crashes
+        extra = "ignore"
 
-    # Algorithm Thresholds [cite: 107, 144]
-    DEBUNK_SIMILARITY_THRESHOLD: float = 0.2
-    DEBUNK_DEEP_GATHERING_THRESHOLD: float = 0.15
-
-    model_config = SettingsConfigDict(
-        env_file=".env", 
-        case_sensitive=True,
-        extra="ignore"
-    )
-
+# Instantiate the settings object to be imported by other modules
 settings = Settings()

@@ -1,74 +1,54 @@
-import httpx
-from bs4 import BeautifulSoup
-from typing import List
-from app.agents.state import VerificationState, Evidence
+import asyncio
+from typing import AsyncGenerator
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
+import asyncpg
+
 from app.core.config import settings
-from app.core.logger import setup_logger
 
-logger = setup_logger("agent.official")
+# --- Custom Connection Routine ---
+async def get_asyncpg_connection():
+    return await asyncpg.connect(
+        settings.DATABASE_URL.replace("+asyncpg", ""), 
+        statement_cache_size=0 
+    )
 
-class OfficialCheckerAgent:
-    def __init__(self):
-        self.headers = {"User-Agent": "SentinelAI/1.0 (Crisis Verification Bot)"}
-        # Common stop words to strip [cite: 92]
-        self.stop_words = {"the", "is", "at", "which", "on", "in", "a", "an", "and", "or", "of", "to"}
+# 1. Setup the Asynchronous Database Engine
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    # --- CRITICAL CHANGE ---
+    # We set echo=False to stop the SQL log spam. 
+    # This allows the Agent's logic logs to be visible in the terminal.
+    echo=False, 
+    future=True,
+    poolclass=NullPool,
+    connect_args={
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+    }
+)
 
-    def _extract_keywords(self, text: str) -> set[str]:
-        """Strips stop words to isolate unique entities (e.g., 'bridge', 'collapsed')."""
-        words = text.lower().replace(".", "").replace(",", "").split()
-        return {w for w in words if w not in self.stop_words}
+Base = declarative_base()
 
-    async def _scrape_and_match(self, url: str, claim_keywords: set[str]) -> float:
-        """Fetches page content and calculates intersection match ratio."""
+AsyncSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False, 
+)
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Creates a new async database session for each request.
+    """
+    async with AsyncSessionLocal() as session:
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, headers=self.headers)
-                if response.status_code != 200:
-                    return 0.0
-                
-                soup = BeautifulSoup(response.content, "html.parser")
-                page_text = soup.get_text().lower()
-                
-                # Check for keyword presence
-                matches = [k for k in claim_keywords if k in page_text]
-                match_count = len(matches)
-                total_keywords = len(claim_keywords)
-
-                # Heuristic: >50% keywords OR >3 strong matches [cite: 94]
-                if total_keywords > 0 and (match_count / total_keywords > 0.5):
-                    return 1.0
-                if match_count >= 3:
-                    return 0.8
-                return 0.0
-                
-        except Exception as e:
-            logger.error(f"Failed to scrape {url}: {str(e)}")
-            return 0.0
-
-    async def run(self, state: VerificationState) -> Dict[str, List[Evidence]]:
-        """
-        Orchestration method for LangGraph.
-        """
-        logger.info(f"Official Agent scanning for: {state['claim_text']}")
-        claim_keywords = self._extract_keywords(state['claim_text'])
-        found_evidence = []
-
-        # In a real scenario, we would use Google Custom Search API restricted 
-        # to settings.OFFICIAL_DOMAINS to find specific URLs first. 
-        # For this blueprint, we simulate scanning known endpoints or results.
-        
-        # Placeholder: Assume we found potential URLs via a search tool
-        potential_urls = [f"https://{domain}/press-releases" for domain in settings.OFFICIAL_DOMAINS]
-
-        for url in potential_urls:
-            score = await self._scrape_and_match(url, claim_keywords)
-            if score > 0.6:
-                found_evidence.append({
-                    "source_url": url,
-                    "title": "Official Government Source",
-                    "snippet": "Matched keywords on official domain.",
-                    "published_date": None,
-                    "confidence_score": score
-                })
-
-        return {"official_evidence": found_evidence}
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            pass
